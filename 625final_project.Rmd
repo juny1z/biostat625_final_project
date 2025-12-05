@@ -1,0 +1,18 @@
+---
+title: "265final"
+author: "JUNYI ZHANG"
+date: "2025-12-05"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+Prevalence <- read_csv("DiabetesPrevalence_CountyData.csv", skip=2)
+Incidence <- read_csv("DiabetesIncidence_CountyData.csv", skip=2)
+Obesity <- read_csv("Diabetes_Obesity_CountyData.csv", skip=2)
+Physical_Inactivity <- read_csv("DiabetesP_inactivity_CountyData.csv", skip=2)
+Demography <- read_csv("ACSDP5Y2023.DP05-Data_demography.csv")
+Economic <- read_csv("ACSDP5Y2023.DP03-Data_economic.csv")
+Social <- read_csv("ACSDP5Y2023.DP02-Data_social.csv")
+```
+
