@@ -342,4 +342,128 @@ autoplot(model_incid)
 # VIF
 vif(model_incid)
 ```
+```{r model-comparison, message=FALSE, warning=FALSE}
+analysis_prev <- County_data %>%
+  dplyr::select(prevalence_pct, income, education, poverty,
+                obesity_pct, inactivity_pct) %>%
+  filter(across(everything(), ~ !is.na(.)))
 
+m_ses  <- lm(prevalence_pct ~ income + education + poverty,
+             data = analysis_prev)
+m_beh  <- lm(prevalence_pct ~ obesity_pct + inactivity_pct,
+             data = analysis_prev)
+m_full <- lm(prevalence_pct ~ income + education + poverty +
+                           obesity_pct + inactivity_pct,
+             data = analysis_prev)
+
+AIC(m_ses, m_beh, m_full)
+BIC(m_ses, m_beh, m_full)
+
+cv_rmse_lm <- function(formula, data, k = 10, seed = 625) {
+  set.seed(seed)
+  n <- nrow(data)
+  folds <- sample(rep(1:k, length.out = n))
+  rmse_vec <- numeric(k)
+  
+  for (i in 1:k) {
+    train_dat <- data[folds != i, , drop = FALSE]
+    test_dat  <- data[folds == i, , drop = FALSE]
+    
+    fit_i <- lm(formula, data = train_dat)
+    pred_i <- predict(fit_i, newdata = test_dat)
+    
+    rmse_vec[i] <- sqrt(mean((test_dat$prevalence_pct - pred_i)^2))
+  }
+  mean(rmse_vec)
+}
+
+cv_ses  <- cv_rmse_lm(prevalence_pct ~ income + education + poverty,
+                      data = analysis_prev)
+cv_beh  <- cv_rmse_lm(prevalence_pct ~ obesity_pct + inactivity_pct,
+                      data = analysis_prev)
+cv_full <- cv_rmse_lm(prevalence_pct ~ income + education + poverty +
+                                    obesity_pct + inactivity_pct,
+                      data = analysis_prev)
+
+model_comp <- tibble::tibble(
+  model = c("Socioeconomic only",
+            "Behavioral only",
+            "Full model"),
+  AIC  = c(AIC(m_ses),  AIC(m_beh),  AIC(m_full)),
+  BIC  = c(BIC(m_ses),  BIC(m_beh),  BIC(m_full)),
+  CV_RMSE = c(cv_ses, cv_beh, cv_full)
+)
+
+model_comp
+```
+
+```{r spatial-analysis, message=FALSE, warning=FALSE}
+library(spdep)
+library(dplyr)
+library(sf)
+library(ggplot2)
+
+sp_data <- map_data_all %>%
+  filter(!is.na(prevalence_pct)) %>%
+  st_make_valid()  
+
+nb <- poly2nb(sp_data, queen = TRUE)
+lw <- nb2listw(nb, style = "W", zero.policy = TRUE)
+
+moran_prev <- moran.test(sp_data$prevalence_pct, lw, zero.policy = TRUE)
+moran_prev   
+
+
+sp_data$lag_prev <- lag.listw(lw, sp_data$prevalence_pct, zero.policy = TRUE)
+
+local_moran <- localmoran(sp_data$prevalence_pct, lw, zero.policy = TRUE)
+
+p_col <- grep("^Pr", colnames(local_moran), value = TRUE)
+sp_data$Ii        <- local_moran[, "Ii"]
+sp_data$Ii_pvalue <- local_moran[, p_col]
+
+
+mean_prev <- mean(sp_data$prevalence_pct, na.rm = TRUE)
+mean_lag  <- mean(sp_data$lag_prev, na.rm = TRUE)
+
+sp_data <- sp_data %>%
+  mutate(
+    high_prev = prevalence_pct > mean_prev,
+    high_lag  = lag_prev > mean_lag,
+    cluster = case_when(
+      Ii_pvalue >= 0.05 ~ "Not significant",
+      high_prev & high_lag  ~ "High-High",
+      !high_prev & !high_lag ~ "Low-Low",
+      high_prev & !high_lag ~ "High-Low",
+      !high_prev & high_lag ~ "Low-High",
+      TRUE ~ "Not significant"
+    ),
+    cluster = factor(
+      cluster,
+      levels = c("High-High", "Low-Low", "High-Low", "Low-High", "Not significant")
+    )
+  )
+ggplot(sp_data) +
+  geom_sf(aes(fill = cluster), color = NA, size = 0) +
+  scale_fill_manual(
+    values = c(
+      "High-High"      = "#d73027",
+      "Low-Low"        = "#4575b4",
+      "High-Low"       = "#fdae61",
+      "Low-High"       = "#74add1",
+      "Not significant" = "grey90"
+    ),
+    drop = FALSE,
+    name = "LISA cluster"
+  ) +
+  coord_sf(crs = 5070, datum = NA) +
+  labs(
+    title = "Local clusters of county-level diabetes prevalence"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 10)
+  )
+```
