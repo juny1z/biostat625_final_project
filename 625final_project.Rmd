@@ -7,12 +7,58 @@ output: pdf_document
 
 ```{r}
 library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tigris) 
+library(sf) 
+library(ggplot2) 
+library(broom)  
+library(caret)
+library(MASS) 
+
 Prevalence <- read_csv("DiabetesPrevalence_CountyData.csv", skip=2)
 Incidence <- read_csv("DiabetesIncidence_CountyData.csv", skip=2)
 Obesity <- read_csv("Diabetes_Obesity_CountyData.csv", skip=2)
 Physical_Inactivity <- read_csv("DiabetesP_inactivity_CountyData.csv", skip=2)
+
 Demography <- read_csv("ACSDP5Y2023.DP05-Data_demography.csv")
-Economic <- read_csv("ACSDP5Y2023.DP03-Data_economic.csv")
-Social <- read_csv("ACSDP5Y2023.DP02-Data_social.csv")
+Socioeconomic <- read_csv("analytic_data2025_v3.csv")
+```
+```{r}
+library(tidyverse)
+## ---- Clean and extract selected demographic variables ----
+demo_clean <- Demography %>% 
+  transmute(
+    GEO_ID,                                   # Full ACS geographic identifier
+    CountyFIPS = str_sub(GEO_ID, -5L),        # Extract county FIPS code
+    County     = NAME,                        # County + State name label
+
+    total_pop      = DP05_0001E,              # Total population estimate
+    median_age     = DP05_0018E,              # Median age
+    perc_65plus    = DP05_0024PE,             # % population aged 65+
+    perc_black     = DP05_0070PE,             # % Black or African American
+    perc_hispanic  = DP05_0071PE              # % Hispanic or Latino
+  ) %>% 
+  slice(-1) %>% 
+  # Remove national- or state-level rows with missing FIPS codes
+  filter(!is.na(CountyFIPS) & CountyFIPS != "")
+head(demo_clean)
+
+
+## ---- Clean Socioeconomic variables ----
+socio_clean <- Socioeconomic %>%
+  transmute(
+    CountyFIPS = `County FIPS Code`,
+    County     = Name,
+    State      = `State Abbreviation`,
+
+    income     = `Median Household Income raw value`,
+    education  = `Some College raw value`,
+    poverty    = `Children in Poverty raw value`
+  ) %>%
+  # remove rows with missing FIPS (state or national summary rows)
+  filter(!is.na(CountyFIPS), CountyFIPS != "")
+head(socio_clean)
 ```
 
