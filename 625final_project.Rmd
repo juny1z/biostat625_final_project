@@ -1,5 +1,5 @@
 ---
-title: "265final"
+title: "625final"
 author: "JUNYI ZHANG"
 date: "2025-12-05"
 output: pdf_document
@@ -21,10 +21,147 @@ Prevalence <- read_csv("DiabetesPrevalence_CountyData.csv", skip=2)
 Incidence <- read_csv("DiabetesIncidence_CountyData.csv", skip=2)
 Obesity <- read_csv("Diabetes_Obesity_CountyData.csv", skip=2)
 Physical_Inactivity <- read_csv("DiabetesP_inactivity_CountyData.csv", skip=2)
-
 Demography <- read_csv("ACSDP5Y2023.DP05-Data_demography.csv")
 Socioeconomic <- read_csv("analytic_data2025_v3.csv")
 ```
+
+```{r}
+#clean data
+Prevalence_clean <- Prevalence %>%
+  mutate(
+    CountyFIPS = as.integer(CountyFIPS),
+    Percentage = na_if(Percentage, "No Data"),
+    Percentage = as.numeric(Percentage)
+  ) %>%
+  select(County, State, CountyFIPS, prevalence_pct = Percentage)
+
+Incidence_clean <- Incidence %>%
+  mutate(
+    CountyFIPS = as.integer(CountyFIPS),
+    `Rate per 1000` = na_if(`Rate per 1000`, "No Data"),
+    `Rate per 1000` = as.numeric(`Rate per 1000`)
+  ) %>%
+  select(County, State, CountyFIPS, incidence_rate = `Rate per 1000`)
+
+Obesity_clean <- Obesity %>%
+  mutate(
+    CountyFIPS = as.integer(CountyFIPS),
+    Percentage = na_if(Percentage, "No Data"),
+    Percentage = as.numeric(Percentage)
+  ) %>%
+  select(County, State, CountyFIPS, obesity_pct = Percentage)
+
+Physical_Inactivity_clean <- Physical_Inactivity %>%
+  mutate(
+    CountyFIPS = as.integer(CountyFIPS),
+    Percentage = na_if(Percentage, "No Data"),
+    Percentage = as.numeric(Percentage)
+  ) %>%
+  select(County, State, CountyFIPS, inactivity_pct = Percentage)
+
+County_data_all <- Obesity_clean %>%
+  full_join(Physical_Inactivity_clean,
+            by = c("County", "State", "CountyFIPS")) %>%
+  full_join(Incidence_clean,
+            by = c("County", "State", "CountyFIPS")) %>%
+  full_join(Prevalence_clean,
+            by = c("County", "State", "CountyFIPS"))
+head(County_data_all)
+
+#plot
+library(ggplot2)
+plot_obesity_prev <- County_data_all %>%
+  filter(!is.na(obesity_pct),
+         !is.na(prevalence_pct))
+
+plot_obesity_prev <- County_data_all %>%
+  filter(!is.na(obesity_pct),
+         !is.na(prevalence_pct))
+ggplot(plot_obesity_prev,
+       aes(x = obesity_pct, y = prevalence_pct)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "Obesity (%)",
+    y = "Diabetes Prevalence (%)",
+    title = "County-level Obesity vs. Diabetes Prevalence"
+  ) +
+  theme_minimal()
+plot_inact_prev <- County_data_all %>%
+  filter(!is.na(inactivity_pct),
+         !is.na(prevalence_pct))
+
+ggplot(plot_inact_prev,
+       aes(x = inactivity_pct, y = prevalence_pct)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "Physical Inactivity (%)",
+    y = "Diabetes Prevalence (%)",
+    title = "County-level Physical Inactivity vs. Diabetes Prevalence"
+  ) +
+  theme_minimal()
+plot_obesity_incid <- County_data_all %>%
+  filter(!is.na(obesity_pct),
+         !is.na(incidence_rate))
+
+ggplot(plot_obesity_incid,
+       aes(x = obesity_pct, y = incidence_rate)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "Obesity (%)",
+    y = "Diabetes Incidence (per 1000)",
+    title = "County-level Obesity vs. Diabetes Incidence"
+  ) +
+  theme_minimal()
+plot_inact_incid <- County_data_all %>%
+  filter(!is.na(inactivity_pct),
+         !is.na(incidence_rate))
+
+ggplot(plot_inact_incid,
+       aes(x = inactivity_pct, y = incidence_rate)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "Physical Inactivity (%)",
+    y = "Diabetes Incidence (per 1000)",
+    title = "County-level Physical Inactivity vs. Diabetes Incidence"
+  ) +
+  theme_minimal()
+```
+
+```{r diabetes-map, message=FALSE, warning=FALSE, fig.width=16, fig.height=6, dpi=300}
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(tigris)
+library(viridis)
+options(tigris_use_cache = TRUE)
+County_data_all <- County_data_all %>%
+  mutate(fips = sprintf("%05d", CountyFIPS))
+counties_sf <- counties(class = "sf", cb = TRUE, year = 2020)
+map_data_all <- counties_sf %>%
+  left_join(County_data_all, by = c("GEOID" = "fips"))
+ggplot(map_data_all) +
+  geom_sf(aes(fill = prevalence_pct), color = NA, size = 0) +
+  scale_fill_viridis_c(
+    option = "magma",
+    na.value = "grey90",
+    name = "Diabetes prevalence (%)"
+  ) +
+  coord_sf(crs = 5070, datum = NA) +  
+  labs(
+    title = "County-level Diabetes Prevalence Across the United States"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
 ```{r}
 library(tidyverse)
 ## ---- Clean and extract selected demographic variables ----
