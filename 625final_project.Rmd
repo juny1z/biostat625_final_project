@@ -1,6 +1,6 @@
 ---
 title: "625final"
-author: "JUNYI ZHANG"
+author: "JUNYI ZHANG, Yanan Fang"
 date: "2025-12-05"
 output: pdf_document
 ---
@@ -15,7 +15,7 @@ library(sf)
 library(ggplot2) 
 library(broom)  
 library(caret)
-library(MASS) 
+
 
 Prevalence <- read_csv("DiabetesPrevalence_CountyData.csv", skip=2)
 Incidence <- read_csv("DiabetesIncidence_CountyData.csv", skip=2)
@@ -26,6 +26,7 @@ Socioeconomic <- read_csv("analytic_data2025_v3.csv")
 ```
 
 ```{r}
+library(dplyr)
 #clean data
 Prevalence_clean <- Prevalence %>%
   mutate(
@@ -33,7 +34,7 @@ Prevalence_clean <- Prevalence %>%
     Percentage = na_if(Percentage, "No Data"),
     Percentage = as.numeric(Percentage)
   ) %>%
-  select(County, State, CountyFIPS, prevalence_pct = Percentage)
+  dplyr::select(County, State, CountyFIPS, prevalence_pct = Percentage)
 
 Incidence_clean <- Incidence %>%
   mutate(
@@ -41,7 +42,7 @@ Incidence_clean <- Incidence %>%
     `Rate per 1000` = na_if(`Rate per 1000`, "No Data"),
     `Rate per 1000` = as.numeric(`Rate per 1000`)
   ) %>%
-  select(County, State, CountyFIPS, incidence_rate = `Rate per 1000`)
+  dplyr::select(County, State, CountyFIPS, incidence_rate = `Rate per 1000`)
 
 Obesity_clean <- Obesity %>%
   mutate(
@@ -49,7 +50,7 @@ Obesity_clean <- Obesity %>%
     Percentage = na_if(Percentage, "No Data"),
     Percentage = as.numeric(Percentage)
   ) %>%
-  select(County, State, CountyFIPS, obesity_pct = Percentage)
+  dplyr::select(County, State, CountyFIPS, obesity_pct = Percentage)
 
 Physical_Inactivity_clean <- Physical_Inactivity %>%
   mutate(
@@ -57,7 +58,7 @@ Physical_Inactivity_clean <- Physical_Inactivity %>%
     Percentage = na_if(Percentage, "No Data"),
     Percentage = as.numeric(Percentage)
   ) %>%
-  select(County, State, CountyFIPS, inactivity_pct = Percentage)
+  dplyr::select(County, State, CountyFIPS, inactivity_pct = Percentage)
 
 County_data_all <- Obesity_clean %>%
   full_join(Physical_Inactivity_clean,
@@ -67,6 +68,7 @@ County_data_all <- Obesity_clean %>%
   full_join(Prevalence_clean,
             by = c("County", "State", "CountyFIPS"))
 head(County_data_all)
+
 
 #plot
 library(ggplot2)
@@ -167,35 +169,177 @@ library(tidyverse)
 ## ---- Clean and extract selected demographic variables ----
 demo_clean <- Demography %>% 
   transmute(
-    GEO_ID,                                   # Full ACS geographic identifier
-    CountyFIPS = str_sub(GEO_ID, -5L),        # Extract county FIPS code
-    County     = NAME,                        # County + State name label
-
-    total_pop      = DP05_0001E,              # Total population estimate
-    median_age     = DP05_0018E,              # Median age
-    perc_65plus    = DP05_0024PE,             # % population aged 65+
-    perc_black     = DP05_0070PE,             # % Black or African American
-    perc_hispanic  = DP05_0071PE              # % Hispanic or Latino
+    GEO_ID, 
+    CountyFIPS = as.integer(str_sub(GEO_ID, -5L)),
+    County     = NAME,
+    total_pop      = DP05_0001E,  
+    median_age     = DP05_0018E,  
+    perc_65plus    = DP05_0024PE, 
+    perc_black     = DP05_0070PE,  
+    perc_hispanic  = DP05_0071PE  
   ) %>% 
   slice(-1) %>% 
   # Remove national- or state-level rows with missing FIPS codes
   filter(!is.na(CountyFIPS) & CountyFIPS != "")
-head(demo_clean)
 
 
 ## ---- Clean Socioeconomic variables ----
 socio_clean <- Socioeconomic %>%
   transmute(
-    CountyFIPS = `County FIPS Code`,
+    CountyFIPS = as.integer(`5-digit FIPS Code`),
     County     = Name,
     State      = `State Abbreviation`,
 
-    income     = `Median Household Income raw value`,
-    education  = `Some College raw value`,
-    poverty    = `Children in Poverty raw value`
+    income_raw    = `Median Household Income raw value`,
+    education_raw = `Some College raw value`,
+    poverty_raw   = `Children in Poverty raw value`
   ) %>%
-  # remove rows with missing FIPS (state or national summary rows)
-  filter(!is.na(CountyFIPS), CountyFIPS != "")
-head(socio_clean)
+  mutate(
+    income    = readr::parse_number(income_raw),
+    education = readr::parse_number(education_raw),
+    poverty   = readr::parse_number(poverty_raw)
+  ) %>%
+  select(-income_raw, -education_raw, -poverty_raw) %>%
+  filter(!is.na(CountyFIPS))
+
+```
+
+
+```{r}
+# data merge
+County_data <- Obesity_clean %>%
+  full_join(Physical_Inactivity_clean,
+            by = c("County", "State", "CountyFIPS")) %>%
+  full_join(Incidence_clean,
+            by = c("County", "State", "CountyFIPS")) %>%
+  full_join(Prevalence_clean,
+            by = c("County", "State", "CountyFIPS")) %>%
+  full_join(socio_clean %>% select(-County, -State),
+            by = "CountyFIPS") %>%
+  full_join(demo_clean  %>% select(-County),
+            by = "CountyFIPS")
+
+```
+```{r}
+## Pairwise relationship scatterplots
+# 1. Income vs Diabetes Prevalence
+plot_income_prev <- County_data %>%
+  filter(!is.na(income), !is.na(prevalence_pct))
+
+ggplot(plot_income_prev,
+       aes(x = income, y = prevalence_pct)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "Median Household Income ($)",
+    y = "Diabetes Prevalence (%)",
+    title = "Income vs Diabetes Prevalence"
+  ) +
+  theme_minimal()
+
+# 2. Education vs Diabetes Prevalence
+plot_edu_prev <- County_data %>%
+  filter(!is.na(education), !is.na(prevalence_pct))
+
+ggplot(plot_edu_prev,
+       aes(x = education, y = prevalence_pct)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "% Adults with Some College",
+    y = "Diabetes Prevalence (%)",
+    title = "Education vs Diabetes Prevalence"
+  ) +
+  theme_minimal()
+
+# 3. Poverty vs Diabetes Prevalence
+plot_poverty_prev <- County_data %>%
+  filter(!is.na(poverty), !is.na(prevalence_pct))
+
+ggplot(plot_poverty_prev,
+       aes(x = poverty, y = prevalence_pct)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "% Children in Poverty",
+    y = "Diabetes Prevalence (%)",
+    title = "Poverty vs Diabetes Prevalence"
+  ) +
+  theme_minimal()
+
+
+# 4. Income vs Diabetes Incidence
+plot_income_incid <- County_data %>%
+  filter(!is.na(income), !is.na(incidence_rate))
+
+ggplot(plot_income_incid,
+       aes(x = income, y = incidence_rate)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "Median Household Income ($)",
+    y = "Diabetes Incidence (per 1000)",
+    title = "Income vs Diabetes Incidence"
+  ) +
+  theme_minimal()
+
+# 5. Education vs Diabetes Incidence
+plot_edu_incid <- County_data %>%
+  filter(!is.na(education), !is.na(incidence_rate))
+
+ggplot(plot_edu_incid,
+       aes(x = education, y = incidence_rate)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "% Adults with Some College",
+    y = "Diabetes Incidence (per 1000)",
+    title = "education vs Diabetes Incidence"
+  ) +
+  theme_minimal()
+
+# 6. Poverty vs Diabetes Incidence
+plot_poverty_incid <- County_data %>%
+  filter(!is.na(poverty), !is.na(incidence_rate))
+
+ggplot(plot_poverty_incid,
+       aes(x = poverty, y = incidence_rate)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    x = "% Children in Poverty",
+    y = "Diabetes Incidence (per 1000)",
+    title = "Poverty vs Diabetes Incidence"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Model for prevalence
+model_prev <- lm(prevalence_pct ~ income + education + poverty +
+                   obesity_pct + inactivity_pct,
+                 data = County_data)
+
+summary(model_prev)
+
+# Model diagnostics for prevalence model
+library(ggfortify)
+autoplot(model_prev)
+# VIF
+library(car)
+vif(model_prev)
+
+
+## Model for incidence
+model_incid <- lm(incidence_rate ~ income + education + poverty +
+                    obesity_pct + inactivity_pct,
+                  data = County_data)
+
+summary(model_incid)
+# Model diagnostics for prevalence model
+autoplot(model_incid)
+# VIF
+vif(model_incid)
 ```
 
